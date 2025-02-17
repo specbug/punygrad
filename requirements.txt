@@ -1,0 +1,11 @@
+# Core dependencies
+numpy>=1.21.0
+torch>=2.0.0  # For validation testing
+
+# Development dependencies
+pytest>=7.0.0
+pytest-cov>=4.0.0
+black>=23.0.0
+ruff>=0.0.290
+mypy>=1.0.0
+jupyter>=1.0.0  # For notebooks 
