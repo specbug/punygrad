@@ -1,4 +1,4 @@
-"""Validation tests comparing PunyGrad against PyTorch's autograd."""
+"""Validation tests comparing punygrad's Scalar class against PyTorch's autograd."""
 
 import math
 import pytest

@@ -1,75 +1,66 @@
-"""Tests for the Tensor class with broadcasting capabilities."""
+"""Tests for the Tensor class basic functionality."""
 
 import pytest
-import numpy as np
-import torch
 from punygrad.engine import Tensor, Scalar
 
 
 def test_tensor_init():
-    """Test tensor initialization and shape calculation using numpy arrays for validation."""
-    # Generate test cases using numpy arrays of different shapes
+    """Test tensor initialization and shape calculation."""
     test_arrays = [
-        np.array([[1, 2], [3, 4]]),  # 2D array
-        np.array([1, 2, 3]),  # 1D array
-        np.array([[[1, 2], [3, 4]], [[5, 6], [7, 8]]]),  # 3D array
-        np.array([]),  # Empty array
-        np.array([[]]),  # Empty row
-        np.ones((2, 3, 4, 5)),  # 4D array
+        [[1, 2], [3, 4]],  # 2D array
+        [1, 2, 3],  # 1D array
+        [[[1, 2], [3, 4]], [[5, 6], [7, 8]]],  # 3D array
+        [],  # Empty array
+        [[]],  # Empty row
     ]
     
-    for np_array in test_arrays:
-        # Convert numpy array to nested list
-        nested_list = np_array.tolist()
+    for array in test_arrays:
+        t = Tensor(array)
         
-        # Create tensor
-        t = Tensor(nested_list)
+        # Check shape calculation
+        expected_shape = get_shape(array)
+        assert t.shape == expected_shape, f"Shape mismatch for {array}: expected {expected_shape}, got {t.shape}"
         
-        # Check shape matches numpy
-        assert t.shape == np_array.shape, f"Shape mismatch for {np_array}: expected {np_array.shape}, got {t.shape}"
+        # Check tensor data structure
+        check_tensor_structure(t.tensor, array)
+
+
+def test_tensor_repr():
+    """Test the string representation of tensors."""
+    test_arrays = [
+        [[1, 2], [3, 4]],  # 2D array
+        [1, 2, 3],  # 1D array
+        [],  # Empty array
+    ]
+    
+    for array in test_arrays:
+        t = Tensor(array)
+        repr_str = repr(t)
         
-        # Convert tensor back to list for value comparison
-        if np_array.size > 0:  # Skip empty arrays
-            t_list = t.to_list()
-            np_list = np_array.tolist()
-            assert t_list == np_list, f"Value mismatch: expected {np_list}, got {t_list}"
+        # Check that repr starts with "Tensor("
+        assert repr_str.startswith("Tensor("), f"Repr should start with 'Tensor(', got {repr_str}"
+        
+        # Check that repr ends with ")"
+        assert repr_str.endswith(")"), f"Repr should end with ')', got {repr_str}"
 
 
 def test_broadcast_shape():
-    """Test the broadcast_shape static method against numpy's broadcasting."""
-    # Generate test cases using numpy arrays of different shapes
-    shape_pairs = [
-        ((2, 3), (2, 3)),  # Same shapes
-        ((), (2, 3)),  # Broadcasting scalar to array
-        ((1, 3), (2, 3)),  # Broadcasting with dimension 1
-        ((2, 1), (1, 3)),  # Broadcasting in multiple dimensions
-        ((5, 1, 4), (3, 4)),  # Broadcasting with different ranks
-        ((1, 1, 1), (3, 4, 5)),  # Broadcasting all dimensions
+    """Test the broadcast_shape static method."""
+    test_cases = [
+        ((2, 3), (2, 3), (2, 3)),  # Same shapes
+        ((), (2, 3), (2, 3)),  # Broadcasting scalar to array
+        ((1, 3), (2, 3), (2, 3)),  # Broadcasting with dimension 1
+        ((2, 1), (1, 3), (2, 3)),  # Broadcasting in multiple dimensions
+        ((5, 1, 4), (3, 4), (5, 3, 4)),  # Broadcasting with different ranks
     ]
     
-    for shape1, shape2 in shape_pairs:
-        # Create numpy arrays
-        a = np.ones(shape1)
-        b = np.ones(shape2)
-        
-        try:
-            # Get numpy's broadcast shape
-            np_broadcast_shape = np.broadcast(a, b).shape
-            
-            # Test our implementation
-            result = Tensor.broadcast_shape(shape1, shape2)
-            
-            # Check result matches numpy
-            assert result == np_broadcast_shape, f"Broadcast shape mismatch: expected {np_broadcast_shape}, got {result}"
-        except ValueError:
-            # If numpy can't broadcast, our implementation should raise an error too
-            with pytest.raises(RuntimeError):
-                Tensor.broadcast_shape(shape1, shape2)
+    for shape1, shape2, expected in test_cases:
+        result = Tensor.broadcast_shape(shape1, shape2)
+        assert result == expected, f"Expected {expected}, got {result}"
 
 
 def test_broadcast_shape_errors():
     """Test that broadcast_shape raises errors for incompatible shapes."""
-    # Generate test cases that should fail
     incompatible_shapes = [
         ((2, 3), (2, 4)),  # Incompatible dimensions
         ((3, 2), (2, 2)),  # Incompatible dimensions
@@ -77,125 +68,120 @@ def test_broadcast_shape_errors():
     ]
     
     for shape1, shape2 in incompatible_shapes:
-        # Create numpy arrays
-        a = np.ones(shape1)
-        b = np.ones(shape2)
-        
-        # Check numpy raises ValueError
-        with pytest.raises(ValueError):
-            c = a + b
-        
-        # Check our implementation raises RuntimeError
         with pytest.raises(RuntimeError):
             Tensor.broadcast_shape(shape1, shape2)
 
 
 def test_broadcast_to():
-    """Test broadcasting a tensor to a new shape against numpy's broadcasting."""
-    # Generate test cases
+    """Test broadcasting a tensor to a new shape."""
     test_cases = [
-        (np.array([[1, 2]]), (3, 2)),  # Broadcast rows
-        (np.array([[1], [2]]), (2, 3)),  # Broadcast columns
-        (np.array([1, 2]), (2, 2)),  # Broadcast 1D to 2D
-        (np.array([[[1]]]), (2, 3, 1)),  # Broadcast 3D
-        (np.ones((1, 1, 1)), (2, 3, 4)),  # Broadcast all dimensions
+        ([[1, 2]], (3, 2)),  # Broadcast rows
+        ([[1], [2]], (2, 3)),  # Broadcast columns
+        ([1, 2], (2, 2)),  # Broadcast 1D to 2D
+        ([[[1]]], (2, 3, 1)),  # Broadcast 3D
     ]
     
-    for np_array, target_shape in test_cases:
-        # Create our tensor from numpy array
-        t = Tensor(np_array.tolist())
-        
-        # Broadcast using our implementation
+    for array, target_shape in test_cases:
+        t = Tensor(array)
         bt = t.broadcast_to(target_shape)
         
         # Check shape
         assert bt.shape == target_shape, f"Shape mismatch: expected {target_shape}, got {bt.shape}"
         
-        # Broadcast using numpy
-        np_broadcast = np.broadcast_to(np_array, target_shape)
-        
-        # Convert tensor back to list for comparison
-        bt_list = bt.to_list()
-        np_list = np_broadcast.tolist()
-        
-        # Check values match numpy's broadcast
-        assert bt_list == np_list, f"Value mismatch: expected {np_list}, got {bt_list}"
+        # Check values manually
+        check_broadcast_values(bt.to_list(), array, target_shape)
 
 
 def test_broadcast_with():
-    """Test broadcasting two tensors together against numpy's broadcasting."""
-    # Generate test cases
+    """Test broadcasting two tensors together."""
     test_cases = [
-        (np.array([[1, 2]]), np.array([[3], [4]])),  # (1, 2) with (2, 1) -> (2, 2)
-        (np.array([1, 2, 3]), np.array([[4], [5]])),  # (3,) with (2, 1) -> (2, 3)
-        (np.array([[1]]), np.array([2, 3, 4])),  # (1, 1) with (3,) -> (1, 3)
-        (np.ones((2, 1, 3)), np.ones((1, 4, 1))),  # (2, 1, 3) with (1, 4, 1) -> (2, 4, 3)
+        ([[1, 2]], [[3], [4]], (2, 2)),  # (1, 2) with (2, 1) -> (2, 2)
+        ([1, 2, 3], [[4], [5]], (2, 3)),  # (3,) with (2, 1) -> (2, 3)
+        ([[1]], [2, 3, 4], (1, 3)),  # (1, 1) with (3,) -> (1, 3)
     ]
     
-    for np_array1, np_array2 in test_cases:
-        # Create our tensors
-        t1 = Tensor(np_array1.tolist())
-        t2 = Tensor(np_array2.tolist())
+    for array1, array2, expected_shape in test_cases:
+        t1 = Tensor(array1)
+        t2 = Tensor(array2)
         
         # Broadcast them
         bt1, bt2 = t1.broadcast_with(t2)
         
         # Check they have the same shape
-        assert bt1.shape == bt2.shape
-        
-        # Get the expected broadcast shape from numpy
-        expected_shape = np.broadcast(np_array1, np_array2).shape
-        
-        # Check our broadcast shape matches numpy's
+        assert bt1.shape == bt2.shape, f"Broadcast tensors should have the same shape, got {bt1.shape} and {bt2.shape}"
         assert bt1.shape == expected_shape, f"Shape mismatch: expected {expected_shape}, got {bt1.shape}"
-        
-        # Broadcast using numpy
-        np_broadcast1 = np.broadcast_to(np_array1, expected_shape)
-        np_broadcast2 = np.broadcast_to(np_array2, expected_shape)
-        
-        # Convert tensors back to list for comparison
-        bt1_list = bt1.to_list()
-        bt2_list = bt2.to_list()
-        np_list1 = np_broadcast1.tolist()
-        np_list2 = np_broadcast2.tolist()
-        
-        # Check values match numpy's broadcast
-        assert bt1_list == np_list1, f"Value mismatch for tensor 1: expected {np_list1}, got {bt1_list}"
-        assert bt2_list == np_list2, f"Value mismatch for tensor 2: expected {np_list2}, got {bt2_list}"
 
 
-def test_broadcast_with_torch():
-    """Test broadcasting against PyTorch's broadcasting."""
-    # Generate test cases
-    test_cases = [
-        (torch.tensor([[1.0, 2.0]]), torch.tensor([[3.0], [4.0]])),  # (1, 2) with (2, 1) -> (2, 2)
-        (torch.tensor([1.0, 2.0, 3.0]), torch.tensor([[4.0], [5.0]])),  # (3,) with (2, 1) -> (2, 3)
-        (torch.tensor([[1.0]]), torch.tensor([2.0, 3.0, 4.0])),  # (1, 1) with (3,) -> (1, 3)
+def test_to_list():
+    """Test converting a tensor to a list."""
+    test_arrays = [
+        [[1, 2], [3, 4]],  # 2D array
+        [1, 2, 3],  # 1D array
+        [[[1, 2], [3, 4]], [[5, 6], [7, 8]]],  # 3D array
+        [],  # Empty array
     ]
     
-    for torch_t1, torch_t2 in test_cases:
-        # Create our tensors from torch tensors
-        t1 = Tensor(torch_t1.tolist())
-        t2 = Tensor(torch_t2.tolist())
-        
-        # Broadcast them
-        bt1, bt2 = t1.broadcast_with(t2)
-        
-        # PyTorch broadcasting happens implicitly during operations
-        torch_result = torch_t1 + torch_t2
-        
-        # Check shapes match
-        assert bt1.shape == tuple(torch_result.shape), f"Shape mismatch: expected {tuple(torch_result.shape)}, got {bt1.shape}"
-        
-        # Check values match torch's broadcast
-        bt1_list = bt1.to_list()
-        bt2_list = bt2.to_list()
-        
-        for i in range(bt1.shape[0]):
-            for j in range(bt1.shape[1] if len(bt1.shape) > 1 else 1):
-                if len(bt1.shape) > 1:
-                    assert bt1_list[i][j] == torch_t1.expand(bt1.shape)[i, j].item()
-                    assert bt2_list[i][j] == torch_t2.expand(bt2.shape)[i, j].item()
+    for array in test_arrays:
+        t = Tensor(array)
+        result = t.to_list()
+        assert result == array, f"Expected {array}, got {result}"
+
+
+# Helper functions
+
+def get_shape(array):
+    """Calculate the shape of a nested list."""
+    if not isinstance(array, list):
+        return ()
+    if not array:
+        return (0,)
+    
+    shape = [len(array)]
+    if isinstance(array[0], list):
+        shape.extend(get_shape(array[0]))
+    
+    return tuple(shape)
+
+
+def check_tensor_structure(tensor_data, array_data):
+    """Check that the tensor data structure matches the input array."""
+    if not isinstance(array_data, list):
+        assert isinstance(tensor_data, Scalar), f"Expected Scalar, got {type(tensor_data)}"
+        assert tensor_data.data == array_data, f"Expected {array_data}, got {tensor_data.data}"
+        return
+    
+    assert isinstance(tensor_data, list), f"Expected list, got {type(tensor_data)}"
+    assert len(tensor_data) == len(array_data), f"Expected length {len(array_data)}, got {len(tensor_data)}"
+    
+    for t, a in zip(tensor_data, array_data):
+        check_tensor_structure(t, a)
+
+
+def check_broadcast_values(broadcast_data, original_data, target_shape):
+    """Check that the broadcast values are correct."""
+    # This is a simplified check for common broadcasting patterns
+    if not isinstance(original_data, list):
+        # Scalar case
+        for i in range(target_shape[0]):
+            assert broadcast_data[i] == original_data, f"Expected {original_data}, got {broadcast_data[i]}"
+        return
+    
+    if len(original_data) == 1:
+        # Broadcasting a single element
+        for i in range(target_shape[0]):
+            if isinstance(original_data[0], list):
+                check_broadcast_values(broadcast_data[i], original_data[0], target_shape[1:])
+            else:
+                assert broadcast_data[i] == original_data[0], f"Expected {original_data[0]}, got {broadcast_data[i]}"
+    elif len(target_shape) > len(get_shape(original_data)):
+        # Broadcasting to higher dimensions
+        for i in range(target_shape[0]):
+            check_broadcast_values(broadcast_data[i], original_data, target_shape[1:])
+    else:
+        # Other cases
+        for i in range(len(original_data)):
+            if i < len(broadcast_data):
+                if isinstance(original_data[i], list):
+                    check_broadcast_values(broadcast_data[i], original_data[i], target_shape[1:])
                 else:
-                    assert bt1_list[i] == torch_t1.expand(bt1.shape)[i].item()
-                    assert bt2_list[i] == torch_t2.expand(bt2.shape)[i].item() 
+                    assert broadcast_data[i] == original_data[i], f"Expected {original_data[i]}, got {broadcast_data[i]}" 

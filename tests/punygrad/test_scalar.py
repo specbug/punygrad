@@ -1,4 +1,4 @@
-"""Tests for the Scalar autograd engine."""
+"""Tests for the Scalar class in the autograd engine."""
 
 import pytest
 from punygrad.engine import Scalar
@@ -72,4 +72,4 @@ def test_invalid_operations():
         x.grad = "invalid"
 
     with pytest.raises(TypeError):
-        x.label = 123
+        x.label = 123 
