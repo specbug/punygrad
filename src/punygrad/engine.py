@@ -233,3 +233,313 @@ class Scalar:
         self.grad = 1.0
         for node in reversed(topo):
             node._backward_fn()
+
+
+class Tensor:
+    """A multi-dimensional array of Scalar objects with broadcasting capabilities.
+    
+    This class implements a tensor (n-dimensional array) of Scalar objects,
+    providing functionality similar to NumPy arrays or PyTorch tensors but
+    with automatic differentiation capabilities through the Scalar class.
+    
+    The Tensor class supports:
+    - Creation from nested lists
+    - Shape information
+    - Broadcasting operations (similar to NumPy broadcasting)
+    
+    Attributes:
+        shape: A tuple representing the dimensions of the tensor
+        tensor: The underlying nested list of Scalar objects
+    """
+
+    def __init__(self, arr):
+        """Initialize a new Tensor instance.
+        
+        Args:
+            arr: The array-like object (nested lists) to convert to a tensor
+                 Each element will be wrapped in a Scalar object
+        """
+        self.__shape = self.__construct_shape(arr)
+        self.__tensor = self.__construct_tensor(arr)
+
+    def __construct_shape(self, arr):
+        """Determine the shape of the input array.
+        
+        Recursively traverses the nested list structure to determine
+        the dimensions of the tensor.
+        
+        Args:
+            arr: The array-like object
+            
+        Returns:
+            A tuple representing the shape of the array
+        """
+        # Handle empty array case
+        if arr == []:
+            return (0,)  # Match numpy's behavior for empty arrays
+            
+        shape = []
+
+        def helper(a):
+            nonlocal shape
+            if not isinstance(a, list):
+                return
+            shape.append(len(a))
+            if a and isinstance(a[0], list):
+                helper(a[0])
+
+        helper(arr)
+        return tuple(shape)
+
+    def __construct_tensor(self, arr):
+        """Convert the input array to a tensor of Scalar objects.
+        
+        Recursively converts each element in the nested list to a Scalar object.
+        
+        Args:
+            arr: The array-like object
+            
+        Returns:
+            A nested list of Scalar objects
+        """
+        # Handle empty array case
+        if arr == []:
+            return []
+            
+        def helper(a):
+            if not isinstance(a, list):
+                return Scalar(a)
+            return [helper(a[i]) for i in range(len(a))]
+
+        return helper(arr)
+
+    def __repr__(self):
+        """Return a string representation of the tensor.
+        
+        Returns:
+            A string representation showing the tensor's structure and values
+        """
+        if not self.shape:
+            return "Tensor([])"
+            
+        def format_array(arr, indent=0):
+            if not isinstance(arr, list):
+                return str(arr)
+                
+            if not arr:
+                return "[]"
+                
+            if not isinstance(arr[0], list):
+                elements = ", ".join(str(x) for x in arr)
+                return f"[{elements}]"
+                
+            result = "["
+            for i, item in enumerate(arr):
+                if i > 0:
+                    result += " "
+                result += "\n" + " " * (indent + 1) + format_array(item, indent + 1)
+                if i < len(arr) - 1:
+                    result += ","
+            result += "\n" + " " * indent + "]"
+            return result
+            
+        formatted = format_array(self.tensor)
+        return f"Tensor({formatted})"
+
+    @staticmethod
+    def broadcast_shape(shape1, shape2):
+        """Compute the broadcast shape of two shapes.
+        
+        Follows NumPy/PyTorch broadcasting rules:
+        1. If shapes have different ranks, prepend 1s to the shorter shape
+        2. For each dimension, the output dimension is the max of the input dimensions
+        3. Broadcasting is valid when for each dimension, either they're equal or one is 1
+        
+        Args:
+            shape1: First shape tuple
+            shape2: Second shape tuple
+            
+        Returns:
+            The resulting broadcast shape
+            
+        Raises:
+            RuntimeError: If shapes cannot be broadcast together
+        """
+        # Reverse shapes for easier processing
+        s1 = list(shape1)[::-1]
+        s2 = list(shape2)[::-1]
+        result = []
+        
+        # Process dimensions
+        for i in range(max(len(s1), len(s2))):
+            dim1 = s1[i] if i < len(s1) else 1
+            dim2 = s2[i] if i < len(s2) else 1
+            
+            if dim1 == dim2 or dim1 == 1 or dim2 == 1:
+                result.append(max(dim1, dim2))
+            else:
+                raise RuntimeError(
+                    f"Tensors cannot be broadcast together, incompatible dimension at {max(len(s1), len(s2))-i-1}: "
+                    f"({dim1} vs {dim2})"
+                )
+                
+        # Return the shape in correct order
+        return tuple(result[::-1])
+
+    def broadcast_to(self, target_shape):
+        """Broadcast this tensor to the target shape.
+        
+        Creates a new tensor with the target shape by repeating values
+        according to NumPy/PyTorch broadcasting rules.
+        
+        Args:
+            target_shape: The shape to broadcast to
+            
+        Returns:
+            A new tensor broadcast to the target shape
+            
+        Raises:
+            RuntimeError: If the tensor cannot be broadcast to the target shape
+        """
+        # If shapes are the same, return self
+        if self.shape == target_shape:
+            return self
+            
+        # Check if broadcasting is possible
+        try:
+            broadcast_shape = self.broadcast_shape(self.shape, target_shape)
+            if broadcast_shape != target_shape:
+                raise RuntimeError(f"Cannot broadcast tensor of shape {self.shape} to {target_shape}")
+        except RuntimeError as e:
+            raise RuntimeError(f"Cannot broadcast tensor of shape {self.shape} to {target_shape}: {str(e)}")
+            
+        # Create a new tensor with the result
+        new_tensor = Tensor.__new__(Tensor)
+        new_tensor.__shape = target_shape
+        
+        # Implement broadcasting in pure Python
+        new_tensor.__tensor = self.__broadcast_tensor(self.tensor, self.shape, target_shape)
+        return new_tensor
+        
+    def __broadcast_tensor(self, tensor_data, current_shape, target_shape):
+        """Broadcast tensor data to target shape in pure Python.
+        
+        Args:
+            tensor_data: The tensor data to broadcast
+            current_shape: The current shape of the tensor data
+            target_shape: The target shape to broadcast to
+            
+        Returns:
+            The broadcast tensor data
+        """
+        # Handle broadcasting from lower to higher dimensions
+        if len(target_shape) > len(current_shape):
+            # Prepend 1s to the current shape
+            padding = len(target_shape) - len(current_shape)
+            padded_shape = (1,) * padding + current_shape
+            
+            # Wrap the tensor data in lists to add dimensions
+            padded_data = tensor_data
+            for _ in range(padding):
+                padded_data = [padded_data]
+                
+            # Now broadcast the padded tensor
+            return self.__broadcast_tensor(padded_data, padded_shape, target_shape)
+            
+        # Handle broadcasting within the same number of dimensions
+        result = tensor_data
+        
+        # Process each dimension
+        for dim in range(len(target_shape)):
+            if current_shape[dim] == target_shape[dim]:
+                # Dimension sizes match, no broadcasting needed
+                continue
+            elif current_shape[dim] == 1:
+                # Broadcast this dimension
+                result = self.__broadcast_dimension(result, dim, target_shape[dim])
+            else:
+                # Cannot broadcast
+                raise RuntimeError(f"Cannot broadcast dimension {current_shape[dim]} to {target_shape[dim]}")
+                
+        return result
+        
+    def __broadcast_dimension(self, tensor_data, dim, size):
+        """Broadcast a specific dimension of the tensor data.
+        
+        Args:
+            tensor_data: The tensor data to broadcast
+            dim: The dimension to broadcast
+            size: The target size of the dimension
+            
+        Returns:
+            The broadcast tensor data
+        """
+        if dim == 0:
+            # Broadcast the first dimension
+            return [tensor_data[0] for _ in range(size)]
+        else:
+            # Recursively broadcast inner dimensions
+            return [self.__broadcast_dimension(item, dim - 1, size) for item in tensor_data]
+
+    def broadcast_with(self, other):
+        """Broadcast this tensor with another tensor.
+        
+        Broadcasts both tensors to a common shape following NumPy/PyTorch
+        broadcasting rules.
+        
+        Args:
+            other: The other tensor
+            
+        Returns:
+            A tuple of (broadcast_self, broadcast_other)
+            
+        Raises:
+            RuntimeError: If the tensors cannot be broadcast together
+        """
+        if self.shape == other.shape:
+            return self, other
+            
+        try:
+            # Compute the broadcast shape
+            broadcast_shape = self.broadcast_shape(self.shape, other.shape)
+            
+            # Broadcast both tensors to this shape
+            return self.broadcast_to(broadcast_shape), other.broadcast_to(broadcast_shape)
+        except RuntimeError as e:
+            raise RuntimeError(f"Cannot broadcast tensors of shapes {self.shape} and {other.shape}: {str(e)}")
+
+    def to_list(self):
+        """Convert the tensor to a nested list of Python values.
+        
+        Returns:
+            A nested list with the same values as the tensor
+        """
+        def extract_data(tensor_data):
+            if not isinstance(tensor_data, list):
+                return tensor_data.data
+            return [extract_data(x) for x in tensor_data]
+        
+        # Handle empty tensor
+        if not self.shape:
+            return []
+            
+        # Extract data from Scalar objects
+        return extract_data(self.tensor)
+
+    @property
+    def shape(self):
+        """Get the shape of the tensor.
+        
+        Returns:
+            A tuple representing the dimensions of the tensor
+        """
+        return self.__shape
+
+    @property
+    def tensor(self):
+        """Get the underlying tensor data.
+        
+        Returns:
+            The nested list of Scalar objects
+        """
+        return self.__tensor
