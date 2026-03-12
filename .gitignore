@@ -41,7 +41,6 @@ htmlcov/
 
 # Jupyter Notebook
 .ipynb_checkpoints
-*.ipynb
 
 # Distribution
 dist/
